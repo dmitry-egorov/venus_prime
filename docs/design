@@ -1,0 +1,61 @@
+tasks:
+  - moving on empty level (client-server)
+  - aiming
+  - shooting, damaging and killing
+  - level
+  - win condition
+  ----
+  - changing weapons, looting
+  - visibility?
+  - recoil and damage effects?
+  - lobby
+
+
+api
+  commands:
+    - Move(direction)
+    - Stop()
+    - Rotate(target_angle)
+    - Fire()
+  events:
+    - Spawned(player_id, position, angle)
+    - Moved(player_id, new_position)
+    - Rotated(player_id, new_angle)
+    - Fired(player_id)
+    - TookDamage(player_id, from_player_id)
+    - Killed(player_id, by_player_id)
+
+struct PlayerEvent
+{
+    PlayerId player_id;
+    PlayerEventData data;
+}
+
+enum PlayerEventData
+{
+    Spawned(position, angle),
+    Moved(new_position),
+    Rotated(new_angle),
+    Fired(),
+    Damaged(new_hit_points, by_player_id),
+    Killed(by_player_id)
+}
+
+GameServer
+{
+    game_server.run
+    (
+        |event| =>
+        match event
+        {
+            ClientConnected(client_id) =>
+            {},
+            ClientDisconnected(client_id) =>
+            {},
+            CommandsReceived(client_id, commands) =>
+            {},
+            Update(dt) =>
+            {}
+        }
+    );
+}
