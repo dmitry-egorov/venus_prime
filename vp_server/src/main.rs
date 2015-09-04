@@ -8,6 +8,7 @@ extern crate log;
 extern crate env_logger;
 extern crate rustc_serialize;
 extern crate bincode;
+extern crate vp_shared;
 
 mod game_server;
 mod vp_world;
@@ -21,7 +22,8 @@ use bincode::SizeLimit;
 use bincode::rustc_serialize::{encode, decode};
 
 use game_server::{GameServerCommand, GameServerMessage, Frame, ClientId};
-use vp_world::{World, Event, PlayerCommand, Direction};
+use vp_shared::{Event, PlayerCommand};
+use vp_world::World;
 
 fn main()
 {
@@ -68,7 +70,7 @@ fn get_command_execution_events(world: &World, frame: &Frame) -> Vec<Event>
         &GameServerMessage::ClientDisconnected(client_id) => world.remove_player(client_id),
         &GameServerMessage::ClientDataReceived(client_id, ref data) =>
         {
-            let commands = deserialize_command(data);
+            let commands = deserialize_commands(data);
             commands
                 .into_iter()
                 .flat_map(|command| world.process_player_command(client_id, command))
@@ -80,14 +82,14 @@ fn get_command_execution_events(world: &World, frame: &Frame) -> Vec<Event>
 
 fn get_sends(frame_events: &Vec<Event>, world: &World, frame: &Frame) -> Vec<(ClientId, Vec<u8>)>
 {
-    let connected_clients = frame.get_just_connected_clients::<HashSet<ClientId>>();
+    let just_connected_clients = frame.get_just_connected_clients::<HashSet<ClientId>>();
 
-    let mut snapshots = if connected_clients.len() != 0
+    let mut snapshots = if just_connected_clients.len() != 0
     {
         let snapshot = world.get_snapshot();
         let serialized_snapshot = serialize_events(&snapshot);
 
-        connected_clients
+        just_connected_clients
             .iter()
             .cloned()
             .map(|client_id| (client_id, serialized_snapshot.clone()))
@@ -99,13 +101,14 @@ fn get_sends(frame_events: &Vec<Event>, world: &World, frame: &Frame) -> Vec<(Cl
     };
 
     let mut updates = if frame_events.len() != 0
+                      && just_connected_clients.len() != frame.currently_connected_clients.len()
     {
         let broadcast = serialize_events(frame_events);
         frame
             .currently_connected_clients
             .iter()
             .cloned()
-            .filter(|client_id| !connected_clients.contains(client_id))
+            .filter(|client_id| !just_connected_clients.contains(client_id))
             .map(|client_id| (client_id, broadcast.clone()))
             .collect()
     }
@@ -123,32 +126,23 @@ fn get_sends(frame_events: &Vec<Event>, world: &World, frame: &Frame) -> Vec<(Cl
 
 fn serialize_events(events: &Vec<Event>) -> Vec<u8>
 {
-    //String::from(format!("{:?}\n", events)).into_bytes()
-
+    //debug!("Sending: {:?}", events);
     encode(events, SizeLimit::Infinite).unwrap()
 }
 
-fn deserialize_command(data: &[u8]) -> Vec<PlayerCommand>
+fn deserialize_commands(data: &[u8]) -> Vec<PlayerCommand>
 {
-    let c = match String::from_utf8_lossy(data).as_ref().trim()
-    {
-        "u" => PlayerCommand::ChangeMovementDirection(Some(Direction::Up)),
-        "d" => PlayerCommand::ChangeMovementDirection(Some(Direction::Down)),
-        "l" => PlayerCommand::ChangeMovementDirection(Some(Direction::Left)),
-        "r" => PlayerCommand::ChangeMovementDirection(Some(Direction::Right)),
-        _ => PlayerCommand::ChangeMovementDirection(None),
-    };
-
-    vec![c]
-    /*
     match decode(data)
     {
-        Ok(commands) => commands,
+        Ok(commands) =>
+        {
+            //debug!("received: {:?}", commands);
+            commands
+        },
         Err(e) =>
         {
             error!("Error decoding commands, error: {}", e);
             vec![]
         }
     }
-    */
 }

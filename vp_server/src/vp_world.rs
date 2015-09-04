@@ -1,54 +1,19 @@
 use na::Vec2;
 use std::collections::HashMap;
-
-#[derive(Clone, Copy, Debug, RustcEncodable, RustcDecodable)]
-pub enum PlayerCommand
-{
-    ChangeMovementDirection(Option<Direction>)
-}
-
-#[derive(Clone, Copy, Debug, RustcEncodable, RustcDecodable)]
-pub enum Event
-{
-    PlayerCreated(PlayerId, Player),
-    PlayerRemoved(PlayerId),
-    PlayerActed(PlayerId, PlayerAction)
-}
+use vp_shared::*;
 
 pub struct World
 {
     players: HashMap<PlayerId, Player>
 }
 
-#[derive(Clone, Copy, Debug, RustcEncodable, RustcDecodable)]
-pub struct Player
+struct Player
 {
-    movement_direction: Option<Direction>,
-    position: Position
+    state: PlayerState
 }
 
-#[derive(Eq, PartialEq, Clone, Copy, Debug, RustcEncodable, RustcDecodable)]
-pub enum Direction
-{
-    Up,
-    Down,
-    Left,
-    Right
-}
-
-type PlayerId = usize;
-
-type Position = Vec2<f32>;
-
-#[derive(Clone, Copy, Debug, RustcEncodable, RustcDecodable)]
-enum PlayerAction
-{
-    ChangedMovementDirection(Option<Direction>),
-    Moved(Position)
-}
-
-use self::Event::*;
-use self::PlayerAction::*;
+use vp_shared::Event::*;
+use vp_shared::PlayerAction::*;
 
 impl World
 {
@@ -59,7 +24,7 @@ impl World
 
     pub fn create_player(&self, player_id: PlayerId) -> Vec<Event>
     {
-        vec![PlayerCreated(player_id, Player {movement_direction: None, position: Vec2::new(0.0, 0.0)})]
+        vec![PlayerCreated(player_id, PlayerState {movement_direction: None, position: Vec2::new(0.0, 0.0)})]
     }
 
     pub fn remove_player(&self, player_id: PlayerId) -> Vec<Event>
@@ -89,7 +54,7 @@ impl World
 
     pub fn get_snapshot(&self) -> Vec<Event>
     {
-        self.players.iter().map(|(player_id, player)| Event::PlayerCreated(player_id.clone(), player.clone())).collect()
+        self.players.iter().map(|(player_id, player)| Event::PlayerCreated(player_id.clone(), player.state.clone())).collect()
     }
 
     pub fn apply_events(&mut self, events: &[Event])
@@ -104,9 +69,9 @@ impl World
     {
         match event
         {
-            PlayerCreated(player_id, player)      => { self.players.insert(player_id, player); },
-            PlayerRemoved(player_id)              => { self.players.remove(&player_id); },
-            PlayerActed(player_id, player_action) =>
+            PlayerCreated(player_id, player_state) => { self.players.insert(player_id, Player { state : player_state }); },
+            PlayerRemoved(player_id)               => { self.players.remove(&player_id); },
+            PlayerActed(player_id, player_action)  =>
             {
                 self.players.get_mut(&player_id).map(|player| player.apply_event(player_action));
             }
@@ -136,7 +101,7 @@ impl Player
         {
             PlayerCommand::ChangeMovementDirection(direction) =>
             {
-                if self.movement_direction != direction
+                if self.state.movement_direction != direction
                 {
                     vec![ChangedMovementDirection(direction)]
                 }
@@ -152,11 +117,11 @@ impl Player
     {
         let player_speed = 2.0;
 
-        match self.movement_direction
+        match self.state.movement_direction
         {
             Some(direction) =>
             {
-                let new_position = self.position + direction.to_vec2() * player_speed * elapsed_seconds;
+                let new_position = self.state.position + direction.to_vec2() * player_speed * elapsed_seconds;
 
                 vec![Moved(new_position)]
             },
@@ -168,22 +133,8 @@ impl Player
     {
         match event
         {
-            ChangedMovementDirection(new_direction) => self.movement_direction = new_direction,
-            Moved(new_position) => self.position = new_position,
-        }
-    }
-}
-
-impl Direction
-{
-    fn to_vec2(&self) -> Vec2<f32>
-    {
-        match self
-        {
-            &Direction::Up    => Vec2::new( 0.0,  1.0),
-            &Direction::Down  => Vec2::new( 0.0, -1.0),
-            &Direction::Right => Vec2::new( 1.0,  0.0),
-            &Direction::Left  => Vec2::new(-1.0,  0.0),
+            ChangedMovementDirection(new_direction) => self.state.movement_direction = new_direction,
+            Moved(new_position) => self.state.position = new_position,
         }
     }
 }

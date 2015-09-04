@@ -1,14 +1,9 @@
 [package]
-name = "vp_server"
+name = "vp_client"
 version = "0.1.0"
 authors = ["Dmitry Egorov <degorov86@gmail.com>"]
 
 [dependencies]
-nalgebra = "0.2.*"
-mio = "0.4"
-log = "0.3"
-env_logger = "0.3"
-time = "0.1"
 bincode = "0.4"
 rustc-serialize = "0.3.*"
 

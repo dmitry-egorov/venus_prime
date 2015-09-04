@@ -49,8 +49,8 @@ impl GameLoop
 
             match frame_processor(frame)
             {
+                GameServerCommand::Continue(per_client_data) => self.schedule_send(per_client_data),
                 GameServerCommand::Exit => return,
-                GameServerCommand::Continue(per_client_data) => self.schedule_send(per_client_data)
             }
         }
     }
