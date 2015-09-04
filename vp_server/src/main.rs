@@ -1,3 +1,5 @@
+#![feature(append)]
+
 extern crate nalgebra as na;
 extern crate time;
 extern crate mio;
@@ -12,6 +14,7 @@ mod vp_world;
 
 use std::str::FromStr;
 use std::thread;
+use std::collections::HashSet;
 
 use time::Duration;
 use bincode::SizeLimit;
@@ -40,96 +43,104 @@ fn main()
     let mut world = World::new();
     game_loop.run(|frame|
     {
-        let frame_events = get_frame_events(&world, &frame);
+        let mut command_execution_events = get_command_execution_events(&world, &frame);
+        world.apply_events(&command_execution_events);
+        let mut update_events = world.update(frame.elapsed_seconds);
+        world.apply_events(&update_events);
 
-        let snapshot_sends = get_snapshot_sends(&world, &frame);
-        let broadcast_sends = get_broadcast_sends(&frame_events, &frame);
-        let sends = snapshot_sends.into_iter().chain(broadcast_sends).collect();
-
-        world.apply_events(&frame_events);
+        let mut frame_events = Vec::new();
+        frame_events.append(&mut command_execution_events);
+        frame_events.append(&mut update_events);
+        let sends = get_sends(&frame_events, &world, &frame);
 
         GameServerCommand::Continue(sends)
     });
 }
 
-fn get_frame_events(world: &World, frame: &Frame) -> Vec<Event>
+fn get_command_execution_events(world: &World, frame: &Frame) -> Vec<Event>
 {
-    let server_events =
-        frame
-        .messages
-        .iter()
-        .flat_map(|message| match message
+    frame
+    .messages
+    .iter()
+    .flat_map(|message| match message
+    {
+        &GameServerMessage::ClientConnected(client_id) => world.create_player(client_id),
+        &GameServerMessage::ClientDisconnected(client_id) => world.remove_player(client_id),
+        &GameServerMessage::ClientDataReceived(client_id, ref data) =>
         {
-            &GameServerMessage::ClientConnected(client_id) => world.spawn_player(client_id),
-            &GameServerMessage::ClientDisconnected(client_id) => world.remove_player(client_id),
-            &GameServerMessage::ClientDataReceived(client_id, ref data) =>
-            {
-                let commands = deserialize_command(data);
-                commands
-                    .into_iter()
-                    .flat_map(|command| world.process_player_command(client_id, command))
-                    .collect()
-            },
-        });
-
-    let update_events = world.update(frame.elapsed_seconds);
-
-    server_events
-    .chain(update_events)
-    .collect::<Vec<Event>>()
+            let commands = deserialize_command(data);
+            commands
+                .into_iter()
+                .flat_map(|command| world.process_player_command(client_id, command))
+                .collect()
+        },
+    })
+    .collect()
 }
 
-fn get_snapshot_sends(world: &World, frame: &Frame) -> Vec<(ClientId, Vec<u8>)>
+fn get_sends(frame_events: &Vec<Event>, world: &World, frame: &Frame) -> Vec<(ClientId, Vec<u8>)>
 {
-    let connected_clients = frame.messages.iter().filter_map(|message| match message
-    {
-        &GameServerMessage::ClientConnected(client_id) => Some(client_id),
-        _ => None
-    })
-    .collect::<Vec<_>>();
+    let connected_clients = frame.get_just_connected_clients::<HashSet<ClientId>>();
 
-    if connected_clients.len() != 0
+    let mut snapshots = if connected_clients.len() != 0
     {
         let snapshot = world.get_snapshot();
         let serialized_snapshot = serialize_events(&snapshot);
+
         connected_clients
-            .into_iter()
+            .iter()
+            .cloned()
             .map(|client_id| (client_id, serialized_snapshot.clone()))
             .collect()
     }
     else
     {
         vec![]
-    }
-}
+    };
 
-fn get_broadcast_sends(frame_events: &[Event], frame: &Frame) -> Vec<(ClientId, Vec<u8>)>
-{
-    if frame_events.len() == 0
-    {
-        vec![]
-    }
-    else
+    let mut updates = if frame_events.len() != 0
     {
         let broadcast = serialize_events(frame_events);
         frame
             .currently_connected_clients
             .iter()
             .cloned()
+            .filter(|client_id| !connected_clients.contains(client_id))
             .map(|client_id| (client_id, broadcast.clone()))
             .collect()
     }
+    else
+    {
+        vec![]
+    };
+
+    let mut events = Vec::new();
+    events.append(&mut snapshots);
+    events.append(&mut updates);
+
+    events
 }
 
-fn serialize_events(events: &[Event]) -> Vec<u8>
+fn serialize_events(events: &Vec<Event>) -> Vec<u8>
 {
-    //TODO: do this without copying?
-    let copy = events.iter().cloned().collect::<Vec<_>>();
-    encode(&copy, SizeLimit::Infinite).unwrap()
+    //String::from(format!("{:?}\n", events)).into_bytes()
+
+    encode(events, SizeLimit::Infinite).unwrap()
 }
 
 fn deserialize_command(data: &[u8]) -> Vec<PlayerCommand>
 {
+    let c = match String::from_utf8_lossy(data).as_ref().trim()
+    {
+        "u" => PlayerCommand::ChangeMovementDirection(Some(Direction::Up)),
+        "d" => PlayerCommand::ChangeMovementDirection(Some(Direction::Down)),
+        "l" => PlayerCommand::ChangeMovementDirection(Some(Direction::Left)),
+        "r" => PlayerCommand::ChangeMovementDirection(Some(Direction::Right)),
+        _ => PlayerCommand::ChangeMovementDirection(None),
+    };
+
+    vec![c]
+    /*
     match decode(data)
     {
         Ok(commands) => commands,
@@ -139,4 +150,5 @@ fn deserialize_command(data: &[u8]) -> Vec<PlayerCommand>
             vec![]
         }
     }
+    */
 }

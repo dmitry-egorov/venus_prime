@@ -10,7 +10,9 @@ pub enum PlayerCommand
 #[derive(Clone, Copy, Debug, RustcEncodable, RustcDecodable)]
 pub enum Event
 {
-    Player(PlayerId, PlayerEvent)
+    PlayerCreated(PlayerId, Player),
+    PlayerRemoved(PlayerId),
+    PlayerActed(PlayerId, PlayerAction)
 }
 
 pub struct World
@@ -39,15 +41,14 @@ type PlayerId = usize;
 type Position = Vec2<f32>;
 
 #[derive(Clone, Copy, Debug, RustcEncodable, RustcDecodable)]
-enum PlayerEvent
+enum PlayerAction
 {
-    Spawned(Player),
-    Removed,
     ChangedMovementDirection(Option<Direction>),
     Moved(Position)
 }
 
-use self::PlayerEvent::*;
+use self::Event::*;
+use self::PlayerAction::*;
 
 impl World
 {
@@ -56,14 +57,14 @@ impl World
         World { players: HashMap::new() }
     }
 
-    pub fn spawn_player(&self, player_id: PlayerId) -> Vec<Event>
+    pub fn create_player(&self, player_id: PlayerId) -> Vec<Event>
     {
-        vec![Event::Player(player_id, Spawned(Player {movement_direction: None, position: Vec2::new(0.0, 0.0)}))]
+        vec![PlayerCreated(player_id, Player {movement_direction: None, position: Vec2::new(0.0, 0.0)})]
     }
 
     pub fn remove_player(&self, player_id: PlayerId) -> Vec<Event>
     {
-        vec![Event::Player(player_id, Removed)]
+        vec![PlayerRemoved(player_id)]
     }
 
     pub fn process_player_command(&self, player_id: PlayerId, command: PlayerCommand) -> Vec<Event>
@@ -74,7 +75,7 @@ impl World
             {
                 player.process_command(command)
                     .into_iter()
-                    .map(|pe| Event::Player(player_id, pe))
+                    .map(|pe| Event::PlayerActed(player_id, pe))
                     .collect()
             },
             None => vec![]
@@ -88,7 +89,7 @@ impl World
 
     pub fn get_snapshot(&self) -> Vec<Event>
     {
-        self.all_players(|player| player.get_snapshot())
+        self.players.iter().map(|(player_id, player)| Event::PlayerCreated(player_id.clone(), player.clone())).collect()
     }
 
     pub fn apply_events(&mut self, events: &[Event])
@@ -103,20 +104,17 @@ impl World
     {
         match event
         {
-            Event::Player(player_id, player_event) =>
+            PlayerCreated(player_id, player)      => { self.players.insert(player_id, player); },
+            PlayerRemoved(player_id)              => { self.players.remove(&player_id); },
+            PlayerActed(player_id, player_action) =>
             {
-                match player_event
-                {
-                    Spawned(player) => { self.players.insert(player_id, player); () },
-                    Removed         => { self.players.remove(&player_id); () },
-                    _               => { self.players.get_mut(&player_id).map(|player| player.apply_event(player_event)); () }
-                }
+                self.players.get_mut(&player_id).map(|player| player.apply_event(player_action));
             }
         }
     }
 
     fn all_players<F>(&self, f: F) -> Vec<Event>
-        where F: Fn(&Player) -> Vec<PlayerEvent>
+        where F: Fn(&Player) -> Vec<PlayerAction>
     {
         self.players
         .iter()
@@ -124,7 +122,7 @@ impl World
         {
             f(player)
             .into_iter()
-            .map(move |e| Event::Player(*player_id, e))
+            .map(move |e| PlayerActed(*player_id, e))
         })
         .collect()
     }
@@ -132,7 +130,7 @@ impl World
 
 impl Player
 {
-    fn process_command(&self, command: PlayerCommand) -> Vec<PlayerEvent>
+    fn process_command(&self, command: PlayerCommand) -> Vec<PlayerAction>
     {
         match command
         {
@@ -150,7 +148,7 @@ impl Player
         }
     }
 
-    fn update(&self, elapsed_seconds: f32) -> Vec<PlayerEvent>
+    fn update(&self, elapsed_seconds: f32) -> Vec<PlayerAction>
     {
         let player_speed = 2.0;
 
@@ -166,18 +164,12 @@ impl Player
         }
     }
 
-    fn get_snapshot(&self) -> Vec<PlayerEvent>
-    {
-        vec![Spawned((*self).clone())]
-    }
-
-    fn apply_event(&mut self, event: PlayerEvent)
+    fn apply_event(&mut self, event: PlayerAction)
     {
         match event
         {
             ChangedMovementDirection(new_direction) => self.movement_direction = new_direction,
             Moved(new_position) => self.position = new_position,
-            _ => unreachable!()
         }
     }
 }

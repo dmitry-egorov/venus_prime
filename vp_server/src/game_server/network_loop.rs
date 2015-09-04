@@ -131,7 +131,6 @@ impl NetworkHandler
                     {
                         error!("Failed to read buffer for token {:?}, error: {}", token, e);
                         self.disconnect_client(token);
-                        return;
                     }
                 }
             }
@@ -303,33 +302,10 @@ impl ClientConnection
 
     fn read(&mut self, event_loop: &mut EventLoop<NetworkHandler>) -> io::Result<Vec<u8>>
     {
-        //TODO: read full message!
-        //TODO: reduce copying!
-        let mut recv_buf = ByteBuf::mut_with_capacity(2048);
-
-        loop
-        {
-            match self.stream.try_read_buf(&mut recv_buf)
-            {
-                Ok(None) => { break; },
-                Ok(Some(n)) =>
-                {
-                    if n < recv_buf.capacity()
-                    {
-                        break;
-                    }
-                },
-                Err(e) =>
-                {
-                    return Err(e);
-                }
-            }
-        }
-
         let mut vec = Vec::new();
-        recv_buf
-            .flip()
-            .read_to_end(&mut vec)
+
+        self.stream
+            .try_read_buf(&mut vec)
             .and_then(|_| self.reregister(event_loop))
             .map(|_| vec)
     }
