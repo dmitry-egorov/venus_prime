@@ -1,15 +1,14 @@
-use std::io::Read;
 use std::net::SocketAddr;
 use std::io;
-use std::io::{Error, ErrorKind};
+use std::io::{Error, ErrorKind, Cursor, Read, Seek, SeekFrom};
 use std::sync::mpsc::Sender;
 use std::collections::VecDeque;
 
 use mio::{Token, EventLoop, EventSet, PollOpt, Handler, TryRead, TryWrite};
-use mio::buf::ByteBuf;
 use mio::util::Slab;
 use mio::tcp::{TcpListener, TcpStream};
 use mio::Sender as MioSender;
+use byteorder::{ReadBytesExt, WriteBytesExt, BigEndian};
 
 use game_server::{GameServerMessage, NetworkCommand, ClientId};
 
@@ -34,6 +33,7 @@ struct ClientConnection
     stream: TcpStream,
     token: Token,
     send_queue: VecDeque<Vec<u8>>,
+    read_buffer: Vec<u8>
 }
 
 impl NetworkLoop
@@ -123,9 +123,12 @@ impl NetworkHandler
             {
                 match self.find_connection(token).read(event_loop)
                 {
-                    Ok(bytes) =>
+                    Ok(messages) =>
                     {
-                        self.sender.send(GameServerMessage::ClientDataReceived(token.0, bytes)).unwrap()
+                        for message in messages.into_iter()
+                        {
+                            self.sender.send(GameServerMessage::ClientDataReceived(token.0, message)).unwrap()
+                        }
                     },
                     Err(e) =>
                     {
@@ -269,6 +272,7 @@ impl ClientConnection
             stream: stream,
             token: token,
             send_queue: VecDeque::new(),
+            read_buffer: Vec::new()
         }
     }
 
@@ -300,18 +304,58 @@ impl ClientConnection
         )
     }
 
-    fn read(&mut self, event_loop: &mut EventLoop<NetworkHandler>) -> io::Result<Vec<u8>>
+    fn read(&mut self, event_loop: &mut EventLoop<NetworkHandler>) -> io::Result<Vec<Vec<u8>>>
     {
-        let mut vec = Vec::new();
+        //TODO: \_O_/
 
-        self.stream
-            .try_read_buf(&mut vec)
-            .and_then(|_| self.reregister(event_loop))
-            .map(|_| vec)
+        try!(self.stream.try_read_buf(&mut self.read_buffer));
+
+        let (messages, remainder) = try!(self.read_messages());
+
+        //TODO: use drain instead?
+        self.read_buffer = remainder;
+
+        try!(self.reregister(event_loop));
+
+        Ok(messages)
+    }
+
+    fn read_messages(&mut self) -> io::Result<(Vec<Vec<u8>>, Vec<u8>)>
+    {
+        let mut messages = Vec::new();
+
+        let mut cursor = Cursor::new(&self.read_buffer[..]);
+
+        loop
+        {
+            if cursor.position() as usize > self.read_buffer.len() - 4
+            {
+                break;
+            }
+
+            let length = try!(cursor.read_u32::<BigEndian>()) as usize;
+            if (self.read_buffer.len() - cursor.position() as usize) < length
+            {
+                cursor.seek(SeekFrom::Current(-4)).unwrap();
+                break;
+            }
+
+            let mut message = Vec::with_capacity(length);
+            unsafe {message.set_len(length);}
+            try!(cursor.read(&mut message));
+            messages.push(message);
+        }
+
+        let mut remainder = Vec::new();
+        cursor.read_to_end(&mut remainder).unwrap();
+        Ok((messages, remainder))
     }
 
     fn enqueue_data(&mut self, event_loop: &mut EventLoop<NetworkHandler>, data: Vec<u8>) -> io::Result<()>
     {
+        let mut length_arr = Vec::with_capacity(4);
+        length_arr.write_u32::<BigEndian>(data.len() as u32).unwrap();
+        self.send_queue.push_back(length_arr);
         self.send_queue.push_back(data);
         self.reregister(event_loop)
     }

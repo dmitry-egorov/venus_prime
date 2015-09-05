@@ -9,6 +9,7 @@ extern crate env_logger;
 extern crate rustc_serialize;
 extern crate bincode;
 extern crate vp_shared;
+extern crate byteorder;
 
 mod game_server;
 mod vp_world;
@@ -31,9 +32,9 @@ fn main()
 
     info!("Starting game server...");
 
-    let addr = FromStr::from_str("127.0.0.1:8000").ok().expect("Failed to parse host:port string");
+    let addr = FromStr::from_str("0.0.0.0:8000").ok().expect("Failed to parse host:port string");
 
-    let (mut game_loop, network_loop) = game_server::game_server(Duration::seconds(1), addr, 128);
+    let (mut game_loop, network_loop) = game_server::game_server(Duration::milliseconds(20), addr, 128);
 
     thread::spawn(move ||
     {
@@ -45,14 +46,14 @@ fn main()
     let mut world = World::new();
     game_loop.run(|frame|
     {
-        let mut command_execution_events = get_command_execution_events(&world, &frame);
+        let command_execution_events = get_command_execution_events(&world, &frame);
         world.apply_events(&command_execution_events);
-        let mut update_events = world.update(frame.elapsed_seconds);
+        let update_events = world.update(frame.elapsed_seconds);
         world.apply_events(&update_events);
 
         let mut frame_events = Vec::new();
-        frame_events.append(&mut command_execution_events);
-        frame_events.append(&mut update_events);
+        frame_events.extend(command_execution_events.iter());
+        frame_events.extend(update_events.iter());
         let sends = get_sends(&frame_events, &world, &frame);
 
         GameServerCommand::Continue(sends)
@@ -134,11 +135,7 @@ fn deserialize_commands(data: &[u8]) -> Vec<PlayerCommand>
 {
     match decode(data)
     {
-        Ok(commands) =>
-        {
-            //debug!("received: {:?}", commands);
-            commands
-        },
+        Ok(commands) => commands,
         Err(e) =>
         {
             error!("Error decoding commands, error: {}", e);
