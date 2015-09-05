@@ -323,7 +323,7 @@ impl ClientConnection
             .ok_or(Error::new(ErrorKind::Other, "Could not pop send queue"))
             .and_then(|data|
             {
-                match self.stream.try_write_buf(&mut ByteBuf::from_slice(&data))
+                match self.stream.try_write(&data)
                 {
                     Ok(None) =>
                     {

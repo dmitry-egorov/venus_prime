@@ -12,18 +12,31 @@ use vp_shared::*;
 
 fn main()
 {
-    let mut stream = TcpStream::connect("127.0.0.1:8000").unwrap();
+    let mut stream = match TcpStream::connect("192.168.1.52:8000")
+    {
+        Ok(stream) => stream,
+        Err(e) =>
+        {
+            println!("Unable to connect to the server. {}", e);
+            return;
+        }
+    };
 
     let mut read_stream = stream.try_clone().unwrap();
     thread::spawn(move ||
     {
+        let mut buf = [0; 2048];
+
         loop
         {
-            let mut buf = [0; 2048];
-            read_stream.read(&mut buf).unwrap();
+            thread::sleep_ms(3000);
+            for _ in 0..9
+            {
+                let count = read_stream.read(&mut buf).unwrap();
 
-            let events: Vec<Event> = decode(&buf).unwrap();
-            println!("{:?}", events);
+                let events: Vec<Event> = decode(&buf[0..count]).unwrap();
+                println!("{:?}", events);
+            }
         }
     });
 
