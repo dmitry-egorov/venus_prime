@@ -84,7 +84,7 @@ fn main()
 
         println!("Sending command: {:?}", command);
 
-        let commands = vec![command; 1000];
+        let commands = vec![command];
         let encoded = encode(&commands, SizeLimit::Infinite).unwrap();
         writer.write_u32::<BigEndian>(encoded.len() as u32).unwrap();
         writer.write(&encoded).unwrap();
