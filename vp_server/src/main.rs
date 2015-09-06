@@ -22,7 +22,8 @@ use time::Duration;
 use bincode::SizeLimit;
 use bincode::rustc_serialize::{encode, decode};
 
-use game_server::{GameServerCommand, GameServerMessage, Frame, ClientId};
+use game_server::{GameServerCommand, Frame};
+use game_server::network_loop::{NetworkEvent, ClientId};
 use vp_shared::{Event, PlayerCommand};
 use vp_world::World;
 
@@ -67,9 +68,9 @@ fn get_command_execution_events(world: &World, frame: &Frame) -> Vec<Event>
     .iter()
     .flat_map(|message| match message
     {
-        &GameServerMessage::ClientConnected(client_id) => world.create_player(client_id),
-        &GameServerMessage::ClientDisconnected(client_id) => world.remove_player(client_id),
-        &GameServerMessage::ClientDataReceived(client_id, ref data) =>
+        &NetworkEvent::ClientConnected(client_id) => world.create_player(client_id),
+        &NetworkEvent::ClientDisconnected(client_id) => world.remove_player(client_id),
+        &NetworkEvent::ClientDataReceived(client_id, ref data) =>
         {
             let commands = deserialize_commands(data);
             commands

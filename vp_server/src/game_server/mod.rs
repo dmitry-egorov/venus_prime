@@ -1,4 +1,4 @@
-mod network_loop;
+pub mod network_loop;
 mod game_loop;
 
 use std::net::SocketAddr;
@@ -9,12 +9,11 @@ use time::Duration;
 
 use self::network_loop::NetworkLoop;
 use self::game_loop::GameLoop;
-
-pub type ClientId = usize;
+use game_server::network_loop::{NetworkEvent, ClientId};
 
 pub struct Frame
 {
-    pub messages: Vec<GameServerMessage>,
+    pub messages: Vec<NetworkEvent>,
     pub currently_connected_clients: Vec<ClientId>,
     pub elapsed_seconds: f32
 }
@@ -25,25 +24,13 @@ pub enum GameServerCommand
     Exit
 }
 
-pub enum GameServerMessage
-{
-    ClientConnected(ClientId),
-    ClientDisconnected(ClientId),
-    ClientDataReceived(ClientId, Vec<u8>)
-}
-
-pub enum NetworkCommand
-{
-    Send(Vec<(ClientId, Vec<u8>)>)
-}
-
 pub fn game_server(target_frame_time: Duration, address: SocketAddr, max_clients: usize) -> (GameLoop, NetworkLoop)
 {
     let (messages_tx, messages_rx) = channel();
-    let handler = NetworkLoop::new(address, max_clients, messages_tx);
-    let server = GameLoop::new(target_frame_time, messages_rx, handler.channel());
+    let network_loop = NetworkLoop::new(address, max_clients, messages_tx);
+    let game_loop = GameLoop::new(target_frame_time, messages_rx, network_loop.channel());
 
-    (server, handler)
+    (game_loop, network_loop)
 }
 
 impl Frame
@@ -53,7 +40,7 @@ impl Frame
     {
         self.messages.iter().filter_map(|message| match message
         {
-            &GameServerMessage::ClientConnected(client_id) => Some(client_id),
+            &NetworkEvent::ClientConnected(client_id) => Some(client_id),
             _ => None
         })
         .collect()

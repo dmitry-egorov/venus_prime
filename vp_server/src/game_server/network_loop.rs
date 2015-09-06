@@ -10,13 +10,25 @@ use mio::tcp::{TcpListener, TcpStream};
 use mio::Sender as MioSender;
 use byteorder::{ReadBytesExt, WriteBytesExt, BigEndian};
 
-use game_server::{GameServerMessage, NetworkCommand, ClientId};
+pub type ClientId = usize;
+
+pub enum NetworkEvent
+{
+    ClientConnected(ClientId),
+    ClientDisconnected(ClientId),
+    ClientDataReceived(ClientId, Vec<u8>)
+}
+
+pub enum NetworkCommand
+{
+    Send(Vec<(ClientId, Vec<u8>)>)
+}
 
 pub struct NetworkLoop
 {
     address: SocketAddr,
     max_clients: usize,
-    network_sender: Sender<GameServerMessage>,
+    network_sender: Sender<NetworkEvent>,
     event_loop: EventLoop<NetworkHandler>,
 }
 
@@ -25,7 +37,7 @@ struct NetworkHandler
     listener_token: Token,
     listener: TcpListener,
     client_connections: Slab<ClientConnection>,
-    sender: Sender<GameServerMessage>,
+    sender: Sender<NetworkEvent>,
 }
 
 struct ClientConnection
@@ -38,7 +50,7 @@ struct ClientConnection
 
 impl NetworkLoop
 {
-    pub fn new(address: SocketAddr, max_clients: usize, sender: Sender<GameServerMessage>) -> NetworkLoop
+    pub fn new(address: SocketAddr, max_clients: usize, sender: Sender<NetworkEvent>) -> NetworkLoop
     {
         NetworkLoop
         {
@@ -62,7 +74,7 @@ impl NetworkLoop
 
 impl NetworkHandler
 {
-    fn bind(address: SocketAddr, max_clients: usize, sender: Sender<GameServerMessage>) -> NetworkHandler
+    fn bind(address: SocketAddr, max_clients: usize, sender: Sender<NetworkEvent>) -> NetworkHandler
     {
         let listener = TcpListener::bind(&address).ok().expect("Failed to bind address");
         let listener_token = Token(1);
@@ -127,7 +139,7 @@ impl NetworkHandler
                     {
                         for message in messages.into_iter()
                         {
-                            self.sender.send(GameServerMessage::ClientDataReceived(token.0, message)).unwrap()
+                            self.sender.send(NetworkEvent::ClientDataReceived(token.0, message)).unwrap()
                         }
                     },
                     Err(e) =>
@@ -200,7 +212,7 @@ impl NetworkHandler
                 Ok(_) =>
                 {
                     debug!("New client {:?} registered with event loop", token);
-                    self.sender.send(GameServerMessage::ClientConnected(token.0)).unwrap();
+                    self.sender.send(NetworkEvent::ClientConnected(token.0)).unwrap();
                 },
                 Err(e) =>
                 {
@@ -231,7 +243,7 @@ impl NetworkHandler
     fn disconnect_client(&mut self, token: Token)
     {
         self.client_connections.remove(token);
-        self.sender.send(GameServerMessage::ClientDisconnected(token.0)).unwrap();
+        self.sender.send(NetworkEvent::ClientDisconnected(token.0)).unwrap();
     }
 
     fn find_connection<'a>(&'a mut self, token: Token) -> &'a mut ClientConnection
@@ -306,8 +318,6 @@ impl ClientConnection
 
     fn read(&mut self, event_loop: &mut EventLoop<NetworkHandler>) -> io::Result<Vec<Vec<u8>>>
     {
-        //TODO: \_O_/
-
         try!(self.stream.try_read_buf(&mut self.read_buffer));
 
         let (messages, remainder) = try!(self.read_messages());
@@ -362,7 +372,6 @@ impl ClientConnection
 
     fn write(&mut self, event_loop: &mut EventLoop<NetworkHandler>) -> io::Result<()>
     {
-        //TODO: check for copying
         self.send_queue.pop_front()
             .ok_or(Error::new(ErrorKind::Other, "Could not pop send queue"))
             .and_then(|data|
@@ -375,7 +384,15 @@ impl ClientConnection
                         self.send_queue.push_front(data);
                         Ok(())
                     },
-                    Ok(Some(_)) => Ok(()),
+                    Ok(Some(n)) =>
+                    {
+                        if n < data.len()
+                        {
+                            let remainder = data.into_iter().skip(n).collect();
+                            self.send_queue.push_front(remainder);
+                        }
+                        Ok(())
+                    },
                     Err(e) => Err(e)
                 }
             })

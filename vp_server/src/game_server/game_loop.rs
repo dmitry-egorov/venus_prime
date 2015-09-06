@@ -6,12 +6,13 @@ use std::collections::HashSet;
 use time::{Duration, PreciseTime};
 use mio::Sender as MioSender;
 
-use game_server::{GameServerMessage, GameServerCommand, Frame, ClientId, NetworkCommand};
+use game_server::{GameServerCommand, Frame};
+use game_server::network_loop::{NetworkEvent, ClientId, NetworkCommand};
 
 pub struct GameLoop
 {
     target_frame_time: Duration,
-    network_receiver: Receiver<GameServerMessage>,
+    network_receiver: Receiver<NetworkEvent>,
     network_sender: MioSender<NetworkCommand>,
     currently_connected_clients: HashSet<ClientId>,
 }
@@ -25,7 +26,7 @@ struct TimeGuard
 
 impl GameLoop
 {
-    pub fn new(target_frame_time: Duration, network_receiver: Receiver<GameServerMessage>, network_sender: MioSender<NetworkCommand>) -> GameLoop
+    pub fn new(target_frame_time: Duration, network_receiver: Receiver<NetworkEvent>, network_sender: MioSender<NetworkCommand>) -> GameLoop
     {
         GameLoop
         {
@@ -67,8 +68,8 @@ impl GameLoop
                 {
                     match message
                     {
-                        GameServerMessage::ClientConnected(client_id) => {self.currently_connected_clients.insert(client_id);},
-                        GameServerMessage::ClientDisconnected(client_id) => {self.currently_connected_clients.remove(&client_id);},
+                        NetworkEvent::ClientConnected(client_id) => {self.currently_connected_clients.insert(client_id);},
+                        NetworkEvent::ClientDisconnected(client_id) => {self.currently_connected_clients.remove(&client_id);},
                         _ => {}
                     };
                     messages.push(message);
