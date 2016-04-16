@@ -17,12 +17,7 @@ pub enum Event
     PlayerActed(PlayerId, PlayerAction)
 }
 
-#[derive(Clone, Copy, Debug, RustcEncodable, RustcDecodable)]
-pub struct PlayerState
-{
-    pub movement_direction: Option<Direction>,
-    pub position: Position
-}
+pub type Position = Vec2<f32>;
 
 #[derive(Eq, PartialEq, Clone, Copy, Debug, RustcEncodable, RustcDecodable)]
 pub enum Direction
@@ -35,7 +30,12 @@ pub enum Direction
 
 pub type PlayerId = usize;
 
-pub type Position = Vec2<f32>;
+#[derive(Clone, Copy, Debug, RustcEncodable, RustcDecodable)]
+pub struct PlayerState
+{
+    pub movement_direction: Option<Direction>,
+    pub position: Position
+}
 
 #[derive(Clone, Copy, Debug, RustcEncodable, RustcDecodable)]
 pub enum PlayerAction
